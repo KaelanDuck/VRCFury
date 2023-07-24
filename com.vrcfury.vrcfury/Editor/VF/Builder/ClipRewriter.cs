@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using VF.Builder.Exceptions;
+using VF.Utils;
 using Object = UnityEngine.Object;
 
 namespace VF.Builder {
@@ -28,13 +29,7 @@ namespace VF.Builder {
             this.rootObject = rootObject;
             this.animObject = animObject;
 
-            if (animObject == null) {
-                throw new VRCFBuilderException("animObject cannot be null");
-            }
-            if (rootObject == null) {
-                throw new VRCFBuilderException("rootObject cannot be null");
-            }
-            if (!animObject.IsChildOf(rootObject)) {
+            if (animObject != null && rootObject != null && !animObject.IsChildOf(rootObject)) {
                 throw new VRCFBuilderException("animObject not child of rootObject");
             }
         }
@@ -55,7 +50,6 @@ namespace VF.Builder {
                 var propName = binding.propertyName;
                 if (GetIsMuscle(propName)) {
                     // Use the muscle
-                    var _ = 1;
                 } else if (rewriteParam != null) {
                     //Debug.LogWarning("Rewritten prop found: " + bindingToUse.propertyName);
                     binding.propertyName = rewriteParam(binding.propertyName);
@@ -66,39 +60,40 @@ namespace VF.Builder {
             
             // Search up the path, starting from the current object, to find the first
             // base object that the animation works within
-            if (binding.path == "" && rootBindingsApplyToAvatar) {
-                // No path search!
-                var _ = 1;
-            } else {
-                string foundPath = null;
-                VFGameObject current = animObject;
-                while (current != null) {
-                    var prefix = current.GetPath(rootObject);
-                    var copy = binding;
-                    copy.path = Join(prefix, binding.path);
-                    var exists = (isFloat && GetFloatFromAvatar(rootObject, copy, out _))
-                        || (!isFloat && GetObjectFromAvatar(rootObject, copy, out _));
-                    if (exists || foundPath == null) foundPath = copy.path;
-                    if (exists) break;
-                    if (current == rootObject) break;
-                    current = current.parent;
+            if (rootObject != null && animObject != null) {
+                if (binding.path == "" && rootBindingsApplyToAvatar) {
+                    // No path search!
+                } else {
+                    string foundPath = null;
+                    VFGameObject current = animObject;
+                    while (current != null) {
+                        var prefix = current.GetPath(rootObject);
+                        var copy = binding;
+                        copy.path = Join(prefix, binding.path);
+                        var exists = (isFloat && GetFloatFromAvatar(rootObject, copy, out _))
+                                     || (!isFloat && GetObjectFromAvatar(rootObject, copy, out _));
+                        if (exists || foundPath == null) foundPath = copy.path;
+                        if (exists) break;
+                        if (current == rootObject) break;
+                        current = current.parent;
+                    }
+                    binding.path = foundPath;
                 }
-                binding.path = foundPath;
             }
 
             return binding;
         }
 
         public void Rewrite(
-            AnimationClip clip_
+            AnimationClip clip
         ) {
-            var clip = new EasyAnimationClip(clip_);
             foreach (var originalBinding in clip.GetFloatBindings()) {
                 var curve = clip.GetFloatCurve(originalBinding);
                 var rewrittenBinding = RewriteBinding(originalBinding, true);
                 bool forceUpdate = false;
                 if (
-                    originalBinding.path == "" 
+                    rootObject
+                    && originalBinding.path == "" 
                     && originalBinding.type == typeof(Transform)
                     && originalBinding.propertyName.StartsWith("m_LocalScale.")
                     && GetFloatFromAvatar(rootObject, originalBinding, out var avatarScale)
@@ -177,12 +172,10 @@ namespace VF.Builder {
             AnimationClip from,
             AnimationClip to
         ) {
-            var fromC = new EasyAnimationClip(from);
-            var toC = new EasyAnimationClip(to);
-            foreach (var binding in fromC.GetFloatBindings())
-                toC.SetFloatCurve(binding, fromC.GetFloatCurve(binding));
-            foreach (var binding in fromC.GetObjectBindings())
-                toC.SetObjectCurve(binding, fromC.GetObjectCurve(binding));
+            foreach (var binding in from.GetFloatBindings())
+                to.SetFloatCurve(binding, from.GetFloatCurve(binding));
+            foreach (var binding in from.GetObjectBindings())
+                to.SetObjectCurve(binding, from.GetObjectCurve(binding));
         }
     }
 }

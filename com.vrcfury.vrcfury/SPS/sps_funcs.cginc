@@ -55,7 +55,7 @@ void sps_apply_real(inout float3 vertex, inout float3 normal, uint vertexId, ino
 		applyLerp = applyLerp * active * saturate(_SPS_Enabled);
 
 		dumbLerp = saturate(sps_map(applyLerp, 0, 0.2, 0, 1));
-		bezierLerp = saturate(sps_map(applyLerp, 0.2, 1, 0, 1));
+		bezierLerp = saturate(sps_map(applyLerp, 0, 1, 0, 1));
 	}
 
 	rootPos = lerp(float3(0,0,worldLength), rootPos, bezierLerp);
@@ -83,18 +83,20 @@ void sps_apply_real(inout float3 vertex, inout float3 normal, uint vertexId, ino
 			bezierPos += (restingVertex.z - curveLength) * bezierForward;
 		}
 	} else {
-		float holeRecessDistance = 0.02 * scaleAdjustment; // 2cm
-		float holeRecessDistance2 = 0.04 * scaleAdjustment; // 4cm
+		const float holeRecessDistance = worldLength * 0.05;
+		const float holeRecessDistance2 = worldLength * 0.1;
 		holeShrink = saturate(sps_map(
 			restingVertex.z,
 			curveLength + holeRecessDistance, curveLength + holeRecessDistance2,
 			1, 0));
-		if (restingVertex.z >= curveLength + holeRecessDistance2) {
-			// If way past socket, condense to point
-			bezierPos += holeRecessDistance2 * bezierForward;
-		} else if (restingVertex.z >= curveLength) {
-			// Straighten if past socket
-			bezierPos += (restingVertex.z - curveLength) * bezierForward;
+		if(_SPS_Overrun > 0) {
+			if (restingVertex.z >= curveLength + holeRecessDistance2) {
+				// If way past socket, condense to point
+				bezierPos += holeRecessDistance2 * bezierForward;
+			} else if (restingVertex.z >= curveLength) {
+				// Straighten if past socket
+				bezierPos += (restingVertex.z - curveLength) * bezierForward;
+			}
 		}
 	}
 

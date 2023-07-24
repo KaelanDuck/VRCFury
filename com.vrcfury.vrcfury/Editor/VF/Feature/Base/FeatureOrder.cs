@@ -2,6 +2,9 @@ namespace VF.Feature.Base {
     public enum FeatureOrder {
         CleanupLegacy = -2000,
         
+        // Needs to happen before toggles begin getting processed
+        ForceObjectState = -1500,
+        
         // Needs to happen before everything
         FixDoubleFx = -1000,
 
@@ -21,13 +24,7 @@ namespace VF.Feature.Base {
         // Needs to run after all haptic components are in place
         // Needs to run before Toggles, because of its "After Bake" action
         BakeHaptics = -3,
-        
-        // Needs to run after all TPS materials are done
-        TpsScaleFix = -2,
 
-        // Needs to happen before toggles begin getting processed
-        ForceObjectState = -1,
-        
         Default = 0,
         
         // Needs to happen after AdvancedVisemes so that gestures affecting the jaw override visemes
@@ -47,6 +44,10 @@ namespace VF.Feature.Base {
         // Needs to happen after any new skinned meshes have been added
         BoundingBoxFix = 10,
         AnchorOverrideFix = 11,
+        
+        // Needs to run after all TPS materials are done
+        // Needs to run after toggles are in place
+        TpsScaleFix = 120,
 
         // Needs to run before ObjectMoveBuilderFixAnimations, but after anything that needs
         // an object moved onto the fake head bone
@@ -56,6 +57,8 @@ namespace VF.Feature.Base {
         // since any changes after this won't have their animations rewritten
         // Needs to run after things are done moving objects
         ObjectMoveBuilderFixAnimations = 140,
+        
+        HapticsAnimationRewrites = 145,
         
         // Needs to run after most things are done messing with animations,
         // since it'll make copies of the blendshape curves
@@ -81,6 +84,13 @@ namespace VF.Feature.Base {
         CleanupEmptyLayers = 10021,
         ControllerConflictCheck = 10022,
         AnimatorLayerControlFix = 10023,
+
+        FixBadParameters = 10024,
+        
+        FinalizeParams = 10030,
+        FinalizeMenu = 10031,
+        FinalizeController = 10032,
+        MarkThingsAsDirtyJustInCase = 10033,
         
         RemoveJunkAnimators = 11000,
         

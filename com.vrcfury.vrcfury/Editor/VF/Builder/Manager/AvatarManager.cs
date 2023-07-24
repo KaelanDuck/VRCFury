@@ -5,6 +5,7 @@ using UnityEditor.Animations;
 using UnityEngine;
 using VF.Inspector;
 using VF.Model.Feature;
+using VF.Utils;
 using VRC.SDK3.Avatars.Components;
 using VRC.SDK3.Avatars.ScriptableObjects;
 
@@ -88,7 +89,8 @@ namespace VF.Builder {
         public IEnumerable<ControllerManager> GetAllUsedControllers() {
             return VRCAvatarUtils.GetAllControllers(avatar)
                 .Where(c => c.Item1 != null)
-                .Select(c => GetController(c.Item3));
+                .Select(c => GetController(c.Item3))
+                .ToArray();
         }
         public IEnumerable<Tuple<VRCAvatarDescriptor.AnimLayerType, AnimatorController>> GetAllUsedControllersRaw() {
             return VRCAvatarUtils.GetAllControllers(avatar)
@@ -113,81 +115,6 @@ namespace VF.Builder {
                 _params = new ParamManager(prms);
             }
             return _params;
-        }
-
-        public void Finish(OverrideMenuSettings menuSettings) {
-            if (_menu != null) {
-                _menu.SortMenu();
-                MenuSplitter.SplitMenus(_menu.GetRaw(), menuSettings);
-                MenuSplitter.FixNulls(_menu.GetRaw());
-            }
-
-            // The VRCSDK usually builds the debug window name lookup before the avatar is built, so we have
-            // to update it with our newly-added states
-            foreach (var c in _controllers.Values) {
-                RebuildDebugHashes(c);
-            }
-            
-            // The VRCSDK usually does this before the avatar is built in VRCAvatarDescriptorEditor3AnimLayerInit
-            var layers = avatar.baseAnimationLayers;
-            for (var i = 0; i < layers.Length; i++) {
-                var layer = layers[i];
-                if (layer.type == VRCAvatarDescriptor.AnimLayerType.Gesture || layer.type == VRCAvatarDescriptor.AnimLayerType.FX) {
-                    var c = layer.animatorController as AnimatorController;
-                    if (c && c.layers.Length > 0) {
-                        layer.mask = c.layers[0].avatarMask;
-                        layers[i] = layer;
-                    }
-                }
-            }
-
-            // Just for safety. These don't need to be here if we make sure everywhere else appropriately marks
-            foreach (var c in _controllers.Values) {
-                VRCFuryEditorUtils.MarkDirty(c.GetRaw());
-            }
-            if (_menu != null) VRCFuryEditorUtils.MarkDirty(_menu.GetRaw());
-            if (_params != null) VRCFuryEditorUtils.MarkDirty(_params.GetRaw());
-
-            if (_params != null) {
-                var maxParams = VRCExpressionParameters.MAX_PARAMETER_COST;
-                if (maxParams > 9999) {
-                    // Some versions of the VRChat SDK have a broken value for this
-                    maxParams = 256;
-                }
-                if (_params.GetRaw().CalcTotalCost() > maxParams) {
-                    throw new Exception(
-                        "Avatar is out of space for parameters! Used "
-                        + _params.GetRaw().CalcTotalCost() + "/" + maxParams
-                        + ". Delete some params from your avatar's param file, or disable some VRCFury features.");
-                }
-            }
-        }
-
-        /**
-         * VRC calculates the animator debug map before vrcfury is invoked, so if we want our states to show up in the
-         * debug panel, we need to add them to the map ourselves.
-         */
-        private void RebuildDebugHashes(ControllerManager manager) {
-            foreach (var layer in manager.GetManagedLayers()) {
-                ProcessStateMachine(layer, "");
-                void ProcessStateMachine(AnimatorStateMachine stateMachine, string prefix) {
-                    //Update prefix
-                    prefix = prefix + stateMachine.name + ".";
-
-                    //States
-                    foreach (var state in stateMachine.states) {
-                        VRCAvatarDescriptor.DebugHash hash = new VRCAvatarDescriptor.DebugHash();
-                        string fullName = prefix + state.state.name;
-                        hash.hash = Animator.StringToHash(fullName);
-                        hash.name = fullName.Remove(0, layer.name.Length + 1);
-                        avatar.animationHashSet.Add(hash);
-                    }
-
-                    foreach (var subMachine in stateMachine.stateMachines)
-                        ProcessStateMachine(subMachine.stateMachine, prefix);
-                }
-            }
-            VRCFuryEditorUtils.MarkDirty(avatar);
         }
     }
 }

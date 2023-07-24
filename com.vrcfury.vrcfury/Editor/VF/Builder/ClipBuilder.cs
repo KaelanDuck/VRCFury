@@ -84,8 +84,11 @@ public class ClipBuilder {
         }
     }
 
+    public void OneFrame(AnimationClip clip, VFGameObject obj, Type type, string propertyName, float value) {
+        clip.SetCurve(GetPath(obj), type, propertyName, OneFrame(value));
+    }
     public void Enable(AnimationClip clip, VFGameObject obj, bool active = true) {
-        clip.SetCurve(GetPath(obj), typeof(GameObject), "m_IsActive", OneFrame(active ? 1 : 0));
+        OneFrame(clip, obj, typeof(GameObject), "m_IsActive", active ? 1 : 0);
     }
     public void Scale(AnimationClip clip, VFGameObject obj, AnimationCurve curve) {
         foreach (var axis in new[]{"x","y","z"}) {
@@ -93,9 +96,9 @@ public class ClipBuilder {
         }
     }
     public void Scale(AnimationClip clip, VFGameObject obj, float x, float y, float z) {
-        clip.SetCurve(GetPath(obj), typeof(Transform), "m_LocalScale.x", OneFrame(x));
-        clip.SetCurve(GetPath(obj), typeof(Transform), "m_LocalScale.y", OneFrame(y));
-        clip.SetCurve(GetPath(obj), typeof(Transform), "m_LocalScale.z", OneFrame(z));
+        OneFrame(clip, obj, typeof(Transform), "m_LocalScale.x", x);
+        OneFrame(clip, obj, typeof(Transform), "m_LocalScale.y", y);
+        OneFrame(clip, obj, typeof(Transform), "m_LocalScale.z", z);
     }
     public void BlendShape(AnimationClip clip, SkinnedMeshRenderer skin, string blendShape, AnimationCurve curve) {
         clip.SetCurve(GetPath(skin.gameObject), typeof(SkinnedMeshRenderer), "blendShape." + blendShape, curve);
@@ -133,22 +136,11 @@ public class ClipBuilder {
     }
 
     private static bool IsEmptyClip(AnimationClip clip, VFGameObject avatarRoot = null) {
-        if (!IsStaticClip(clip)) return false;
-        foreach (var binding in AnimationUtility.GetCurveBindings(clip)) {
-            if (!avatarRoot) return false;
-            var curve = AnimationUtility.GetEditorCurve(clip, binding);
-            if (curve.length == 0) continue;
-            var val = curve.keys[0].value;
-            var exists = AnimationUtility.GetFloatValue(avatarRoot, binding, out var existingValue);
-            if (!exists || val != existingValue) return false;
+        foreach (var unused in AnimationUtility.GetCurveBindings(clip)) {
+            return false;
         }
-        foreach (var binding in AnimationUtility.GetObjectReferenceCurveBindings(clip)) {
-            if (!avatarRoot) return false;
-            var curve = AnimationUtility.GetObjectReferenceCurve(clip, binding);
-            if (curve.Length == 0) continue;
-            var val = curve[0].value;
-            var exists = AnimationUtility.GetObjectReferenceValue(avatarRoot, binding, out var existingValue);
-            if (!exists || val != existingValue) return false;
+        foreach (var unused in AnimationUtility.GetObjectReferenceCurveBindings(clip)) {
+            return false;
         }
         return true;
     }

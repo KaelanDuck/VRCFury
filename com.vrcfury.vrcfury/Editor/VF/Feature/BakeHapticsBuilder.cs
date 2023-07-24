@@ -10,11 +10,51 @@ using VF.Component;
 using VF.Feature.Base;
 using VF.Inspector;
 using VF.Model.Feature;
+using VF.Utils;
 using VRC.Dynamics;
 using VRC.SDK3.Dynamics.Contact.Components;
 
 namespace VF.Feature {
     public class BakeHapticsBuilder : FeatureBuilder {
+
+        private List<(VFGameObject, VFGameObject)> spsRewritesToDo
+            = new List<(VFGameObject, VFGameObject)>();
+
+        [FeatureBuilderAction(FeatureOrder.HapticsAnimationRewrites)]
+        public void ApplySpsRewrites() {
+            foreach (var (plugObj, rendererObj) in spsRewritesToDo) {
+                var pathToPlug = plugObj.GetPath(avatarObject);
+                var pathToRenderer = rendererObj.GetPath(avatarObject);
+                var spsEnabledBinding = EditorCurveBinding.FloatCurve(
+                    pathToRenderer,
+                    typeof(SkinnedMeshRenderer),
+                    "material._SPS_Enabled"
+                );
+                var hapticsEnabledBinding = EditorCurveBinding.FloatCurve(
+                    pathToPlug,
+                    typeof(GameObject),
+                    "m_IsActive"
+                );
+                foreach (var c in manager.GetAllUsedControllers()) {
+                    foreach (var clip in c.GetClips()) {
+                        foreach (var binding in clip.GetFloatBindings()) {
+                            if (binding.path == pathToRenderer) {
+                                if (binding.propertyName == "material._TPS_AnimatedToggle") {
+                                    clip.SetFloatCurve(spsEnabledBinding, clip.GetFloatCurve(binding));
+                                    clip.SetFloatCurve(hapticsEnabledBinding, clip.GetFloatCurve(binding));
+                                }
+                            }
+                            if (binding.path == pathToPlug) {
+                                if (binding.propertyName == "spsAnimatedEnabled") {
+                                    clip.SetFloatCurve(spsEnabledBinding, clip.GetFloatCurve(binding));
+                                    clip.SetFloatCurve(hapticsEnabledBinding, clip.GetFloatCurve(binding));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         [FeatureBuilderAction(FeatureOrder.BakeHaptics)]
         public void Apply() {
@@ -31,6 +71,8 @@ namespace VF.Feature {
             
             var socketsMenu = "Sockets";
             var optionsFolder = $"{socketsMenu}/<b>Options";
+
+            AnimationClip tipLightOnClip = null;
             
             foreach (var plug in avatarObject.GetComponentsInSelfAndChildren<VRCFuryHapticPlug>()) {
                 PhysboneUtils.RemoveFromPhysbones(plug.transform);
@@ -46,6 +88,9 @@ namespace VF.Feature {
                 if (plug.configureTps || plug.enableSps) {
                     foreach (var renderer in renderers) {
                         addOtherFeature(new TpsScaleFix() { singleRenderer = renderer });
+                        if (renderer is SkinnedMeshRenderer skin) {
+                            addOtherFeature(new BoundingBoxFix2() { skipRenderer = skin });
+                        }
                     }
                 }
 
@@ -54,34 +99,7 @@ namespace VF.Feature {
 
                 if (plug.enableSps) {
                     foreach (var renderer in renderers) {
-                        var pathToPlug = plug.owner().GetPath(avatarObject);
-                        var pathToRenderer = renderer.owner().GetPath(avatarObject);
-                        foreach (var c in manager.GetAllUsedControllers()) {
-                            foreach (var clip in c.GetClips()) {
-                                foreach (var binding in clip.GetFloatBindings()) {
-                                    if (binding.path == pathToRenderer) {
-                                        if (binding.propertyName == "material._TPS_AnimatedToggle") {
-                                            var newBinding = EditorCurveBinding.FloatCurve(
-                                                pathToRenderer,
-                                                typeof(SkinnedMeshRenderer),
-                                                "material._SPS_Enabled"
-                                            );
-                                            clip.SetFloatCurve(newBinding, clip.GetFloatCurve(binding));
-                                        }
-                                    }
-                                    if (binding.path == pathToPlug) {
-                                        if (binding.propertyName == "spsAnimatedEnabled") {
-                                            var newBinding = EditorCurveBinding.FloatCurve(
-                                                pathToRenderer,
-                                                typeof(SkinnedMeshRenderer),
-                                                "material._SPS_Enabled"
-                                            );
-                                            clip.SetFloatCurve(newBinding, clip.GetFloatCurve(binding));
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        spsRewritesToDo.Add((plug.owner(), renderer.owner()));
                     }
                 }
 
@@ -95,17 +113,19 @@ namespace VF.Feature {
                     light.shadows = LightShadows.None;
                     light.renderMode = LightRenderMode.ForceVertex;
 
-                    var fx = GetFx();
-                    var param = fx.NewBool("tipLight", synced: true);
-                    manager.GetMenu().NewMenuToggle($"{optionsFolder}/<b>DPS Tip Light<\\/b>\n<size=20>Allows plugs to trigger old DPS animations", param);
-                    var onClip = fx.NewClip("EnableAutoReceivers");
-                    clipBuilder.Enable(onClip, tip);
-                    var layer = fx.NewLayer("Tip Light");
-                    var off = layer.NewState("Off");
-                    var on = layer.NewState("On").WithAnimation(onClip);
-                    var whenOn = param.IsTrue();
-                    off.TransitionsTo(on).When(whenOn);
-                    on.TransitionsTo(off).When(whenOn.Not());
+                    if (tipLightOnClip == null) {
+                        var fx = GetFx();
+                        var param = fx.NewBool("tipLight", synced: true);
+                        manager.GetMenu().NewMenuToggle($"{optionsFolder}/<b>DPS Tip Light<\\/b>\n<size=20>Allows plugs to trigger old DPS animations", param);
+                        tipLightOnClip = fx.NewClip("EnableAutoReceivers");
+                        var layer = fx.NewLayer("Tip Light");
+                        var off = layer.NewState("Off");
+                        var on = layer.NewState("On").WithAnimation(tipLightOnClip);
+                        var whenOn = param.IsTrue();
+                        off.TransitionsTo(on).When(whenOn);
+                        on.TransitionsTo(off).When(whenOn.Not());
+                    }
+                    clipBuilder.Enable(tipLightOnClip, tip);
                 }
             }
 
@@ -167,6 +187,9 @@ namespace VF.Feature {
                 foreach (var receiver in bakeRoot.GetComponentsInSelfAndChildren<VRCContactReceiver>()) {
                     objectsToDisableTemporarily.Add(receiver.transform);
                 }
+                
+                // This needs to be created before we make the menu item, because it turns this off.
+                var animRoot = GameObjects.Create("Animations", bakeRoot.transform);
 
                 if (socket.addMenuItem) {
                     var fx = GetFx();
@@ -199,7 +222,14 @@ namespace VF.Feature {
                     foreach (var child in FindChildren("Receivers", "VersionLocal")) {
                         clipBuilder.Enable(onStealthClip, child.gameObject);
                     }
-                    
+
+                    var gizmo = obj.GetComponent<VRCFurySocketGizmo>();
+                    if (gizmo != null) {
+                        gizmo.show = false;
+                        clipBuilder.OneFrame(onLocalClip, obj, typeof(VRCFurySocketGizmo), "show", 1);
+                        clipBuilder.OneFrame(onRemoteClip, obj, typeof(VRCFurySocketGizmo), "show", 1);
+                    }
+
                     var holeOn = fx.NewBool(name, synced: true);
                     manager.GetMenu().NewMenuToggle($"{socketsMenu}/{name}", holeOn);
 
@@ -236,7 +266,6 @@ namespace VF.Feature {
                 }
 
                 var actionNum = 0;
-                var animRoot = GameObjects.Create("Animations", bakeRoot.transform);
                 foreach (var depthAction in socket.depthActions) {
                     actionNum++;
                     var prefix = name + actionNum;

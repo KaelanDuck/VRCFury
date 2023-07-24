@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEngine;
+using VF.Inspector;
 using VF.Menu;
 using VRC.Dynamics;
 using VRC.SDK3.Dynamics.Contact.Components;
@@ -218,6 +221,52 @@ namespace VF.Builder.Haptics {
                 return skin.rootBone;
             }
             return r.transform;
+        }
+        
+        public static string GetName(VFGameObject obj) {
+            var current = obj;
+            while (current != null) {
+                var name = NormalizeName(current.name);
+                if (!string.IsNullOrWhiteSpace(name)) {
+                    return name;
+                }
+                current = current.parent;
+            }
+            return "Unknown";
+        }
+
+        private static string NormalizeName(string name) {
+            name = Regex.Replace(name, @"ezdps_([a-z][a-z]?_?)?", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"dps", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"gameobject", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"object", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"tps", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"haptic", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"socket", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"plug", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"\(\d+\)", "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, VRCFuryEditorUtils.Rev("ecifiro"), "", RegexOptions.IgnoreCase);
+            name = Regex.Replace(name, @"[_\-.\[\]\(\)]+", " ");
+            name = LowerCaseSequentialUpperCaseChars(name);
+            name = Regex.Replace(name, @"(\B[A-Z])", " $1");
+            name = Regex.Replace(name, @" +", " ");
+            name = name.ToLower();
+            name = name.Trim();
+            return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(name);
+        }
+
+        private static string LowerCaseSequentialUpperCaseChars(string str) {
+            var arr = str.ToCharArray();
+            var lastWasUpper = false;
+            for (var i = 0; i < arr.Length; i++) {
+                var currentIsUpper = Char.IsUpper(arr[i]);
+                if (lastWasUpper && currentIsUpper) {
+                    arr[i - 1] = Char.ToLower(arr[i - 1]);
+                    arr[i] = Char.ToLower(arr[i]);
+                }
+                lastWasUpper = currentIsUpper;
+            }
+            return new string(arr);
         }
     }
 }
