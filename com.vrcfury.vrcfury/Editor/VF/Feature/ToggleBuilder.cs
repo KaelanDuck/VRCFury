@@ -57,12 +57,14 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
         );
 
         var clip = LoadState("On", model.state);
+        var clipOff = LoadState("Off", model.offState);
+
         if (ClipBuilder.IsStaticMotion(clip)) {
             var tree = fx.NewBlendTree("On Tree");
             tree.blendType = BlendTreeType.Simple1D;
             tree.useAutomaticThresholds = false;
             tree.blendParameter = x.Name();
-            tree.AddChild(fx.GetNoopClip(), 0);
+            tree.AddChild(clipOff, 0);
             tree.AddChild(clip, 1);
             on.WithAnimation(tree);
         } else {
@@ -86,7 +88,11 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
         var layerName = model.name;
         var fx = GetFx();
         var layer = fx.NewLayer(layerName);
-        var off = layer.NewState("Off");
+
+        // LoadState checks for null, so this is fine
+        var offState = model.separateOffState ? model.offState : null;
+        var localOffState = model.separateOffState ? model.localOffState : null;
+
 
         if (model.useGlobalParam && model.globalParam != null && model.paramOverride == null) {
             model.paramOverride = model.globalParam;
@@ -117,10 +123,10 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
         
         if (model.separateLocal) {
             var isLocal = fx.IsLocal().IsTrue();
-            Apply(fx, layer, off, onCase.And(isLocal.Not()), "On Remote", model.state, model.transitionStateIn, model.transitionStateOut, physBoneResetter);
-            Apply(fx, layer, off, onCase.And(isLocal), "On Local", model.localState, model.localTransitionStateIn, model.localTransitionStateOut, physBoneResetter);
+            Apply(fx, layer, offState, onCase.And(isLocal.Not()), "On Remote", model.state, model.transitionStateIn, model.transitionStateOut, physBoneResetter);
+            Apply(fx, layer, localOffState, onCase.And(isLocal), "On Local", model.localState, model.localTransitionStateIn, model.localTransitionStateOut, physBoneResetter);
         } else {
-            Apply(fx, layer, off, onCase, "On", model.state, model.transitionStateIn, model.transitionStateOut, physBoneResetter);
+            Apply(fx, layer, model.offState, onCase, "On", model.state, model.transitionStateIn, model.transitionStateOut, physBoneResetter);
         }
 
         if (model.addMenuItem) {
@@ -143,7 +149,7 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
     private void Apply(
         ControllerManager fx,
         VFALayer layer,
-        VFAState off,
+        State off,
         VFACondition onCase,
         string onName,
         State action,
@@ -151,11 +157,13 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
         State outAction,
         VFABool physBoneResetter
     ) {
-        var clip = LoadState(onName, action);
+        var onClip = LoadState(onName, action);
+        var offClip = LoadState("Off", off);
 
-        if (model.includeInRest && !appliedToRest) {
+        // remote state is always Apply()'d first, this will never incorrectly apply the local state to the resting state
+        if ((model.includeInRest || model.forceOffInRest) && !appliedToRest) {
             appliedToRest = true;
-            ApplyClipToRestingState(clip, true);
+            ApplyClipToRestingState(model.includeInRest ? onClip : offClip, true);
         }
 
         if (model.securityEnabled) {
@@ -168,18 +176,19 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
             }
         }
 
+        VFAState offState = layer.NewState("Off").WithAnimation(offClip);
         VFAState inState;
         VFAState onState;
         if (model.hasTransition) {
             var transitionClipIn = LoadState(onName + " In", inAction);
             inState = layer.NewState(onName + " In").WithAnimation(transitionClipIn);
-            onState = layer.NewState(onName).WithAnimation(clip);
+            onState = layer.NewState(onName).WithAnimation(onClip);
             inState.TransitionsTo(onState).When().WithTransitionExitTime(1);
         } else {
-            inState = onState = layer.NewState(onName).WithAnimation(clip);
+            inState = onState = layer.NewState(onName).WithAnimation(onClip);
         }
         exclusiveTagTriggeringStates.Add(inState);
-        off.TransitionsTo(inState).When(onCase);
+        offState.TransitionsTo(inState).When(onCase);
 
         if (model.simpleOutTransition) outAction = inAction;
         if (model.hasTransition) {
@@ -192,7 +201,7 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
         }
 
         if (physBoneResetter != null) {
-            off.Drives(physBoneResetter, true);
+            offState.Drives(physBoneResetter, true);
             inState.Drives(physBoneResetter, true);
         }
 
@@ -204,7 +213,7 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
                 def: false,
                 usePrefix: false
             );
-            off.Drives(driveGlobal, false);
+            offState.Drives(driveGlobal, false);
             inState.Drives(driveGlobal, true);
         }
     }
@@ -275,6 +284,8 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
         var useGlobalParamProp = prop.FindPropertyRelative("useGlobalParam");
         var globalParamProp = prop.FindPropertyRelative("globalParam");
         var holdButtonProp = prop.FindPropertyRelative("holdButton");
+        var separateoffStateProp = prop.FindPropertyRelative("separateOffState");
+        var forceOffInRestProp = prop.FindPropertyRelative("forceOffInRest");
 
         var flex = new VisualElement {
             style = {
@@ -321,6 +332,15 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
             if (includeInRestProp != null) {
                 advMenu.AddItem(new GUIContent("Show in Rest Pose"), includeInRestProp.boolValue, () => {
                     includeInRestProp.boolValue = !includeInRestProp.boolValue;
+                    if (forceOffInRestProp != null && includeInRestProp.boolValue) forceOffInRestProp.boolValue = false;
+                    prop.serializedObject.ApplyModifiedProperties();
+                });
+            }
+
+            if (forceOffInRestProp != null) {
+                advMenu.AddItem(new GUIContent("Hide in Rest Pose"), forceOffInRestProp.boolValue, () => {
+                    forceOffInRestProp.boolValue = !forceOffInRestProp.boolValue;
+                    if (includeInRestProp != null && forceOffInRestProp.boolValue) includeInRestProp.boolValue = false;
                     prop.serializedObject.ApplyModifiedProperties();
                 });
             }
@@ -363,6 +383,13 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
             {
                 advMenu.AddItem(new GUIContent("Separate Local State"), separateLocalProp.boolValue, () => {
                     separateLocalProp.boolValue = !separateLocalProp.boolValue;
+                    prop.serializedObject.ApplyModifiedProperties();
+                });
+            }
+
+            if (separateoffStateProp != null) {
+                advMenu.AddItem(new GUIContent("Separate Off State"), separateoffStateProp.boolValue, () => {
+                    separateoffStateProp.boolValue = !separateoffStateProp.boolValue;
                     prop.serializedObject.ApplyModifiedProperties();
                 });
             }
@@ -473,6 +500,26 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
             }, separateLocalProp));
         }
 
+        if (separateoffStateProp != null) {
+            content.Add(VRCFuryEditorUtils.RefreshOnChange(() => {
+                var c = new VisualElement();
+                if (separateoffStateProp.boolValue) {
+                    c.Add(VRCFuryEditorUtils.Prop(prop.FindPropertyRelative("offState"), "Off State"));
+                }
+                return c;
+            }, separateoffStateProp));
+
+            if (separateLocalProp != null) {
+                content.Add(VRCFuryEditorUtils.RefreshOnChange(() => {
+                    var c = new VisualElement();
+                    if (separateoffStateProp.boolValue && separateLocalProp.boolValue) {
+                        c.Add(VRCFuryEditorUtils.Prop(prop.FindPropertyRelative("localOffState"), "Local Off State"));
+                    }
+                    return c;
+                }, separateoffStateProp, separateLocalProp));
+            }
+        }
+
         content.Add(VRCFuryEditorUtils.RefreshOnChange(() => {
             var c = new VisualElement();
             if (hasTransitionProp.boolValue)
@@ -519,7 +566,9 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
                 if (defaultOnProp != null && defaultOnProp.boolValue)
                     tags.Add("Default On");
                 if (includeInRestProp != null && includeInRestProp.boolValue)
-                    tags.Add("Shown in Rest Pose");
+                    tags.Add("Forced ON in Rest Pose");
+                if (forceOffInRestProp != null && forceOffInRestProp.boolValue)
+                    tags.Add("Forced OFF in Rest Pose");
                 if (exclusiveOffStateProp != null && exclusiveOffStateProp.boolValue)
                     tags.Add("This is the Exclusive Off State");
                 if (holdButtonProp != null && holdButtonProp.boolValue)
@@ -545,6 +594,7 @@ public class ToggleBuilder : FeatureBuilder<Toggle> {
             securityEnabledProp,
             defaultOnProp,
             includeInRestProp,
+            forceOffInRestProp,
             exclusiveOffStateProp,
             holdButtonProp
         ));

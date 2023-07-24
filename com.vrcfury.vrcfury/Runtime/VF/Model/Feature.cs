@@ -282,6 +282,10 @@ namespace VF.Model.Feature {
         public bool useGlobalParam;
         public string globalParam;
         public bool holdButton;
+        public bool separateOffState;
+        public State offState;
+        public State localOffState;
+        public bool forceOffInRest;
 
         public override void CreateNewInstance(GameObject obj) {
             var n = obj.AddComponent<VRCFuryToggle>();
