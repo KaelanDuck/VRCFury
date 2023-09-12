@@ -466,10 +466,11 @@ namespace VF.Model.Feature {
     [NoBuilder]
     public class FixWriteDefaults : NewFeatureModel {
         public enum FixWriteDefaultsMode {
-            Auto,
+            LegacyAuto,
             ForceOff,
             ForceOn,
-            Disabled
+            Disabled,
+            Auto
         }
         public FixWriteDefaultsMode mode = FixWriteDefaultsMode.Auto;
     }

@@ -21,7 +21,8 @@ namespace VF.Feature {
                 "This feature attempt to fix an avatar with a broken mix of Write Defaults."));
             container.Add(VRCFuryEditorUtils.Prop(prop.FindPropertyRelative("mode"), "Fix Mode"));
             container.Add(VRCFuryEditorUtils.Info(
-                "Auto - Will force all states to on or off, whichever requires the fewest changes to the existing avatar\n" +
+                "Auto - Forces all states to WD on in the FX controller, and all states to WD off in other controllers\n" +
+                "Legacy Auto - Will force all states to on or off, whichever requires the fewest changes to the existing avatar\n" +
                 "Force On - Forces all states to WD on\n" +
                 "Force Off - Forces all states to WD off\n" +
                 "Disabled - Don't try to fix anything and don't warn even if it looks broken"));
@@ -35,8 +36,8 @@ namespace VF.Feature {
                 var analysis = FixWriteDefaultsBuilder.DetectExistingWriteDefaults(avatarControllers);
 
                 var output = new List<string>();
-                output.Add($"Auto mode = {(analysis.shouldBeOnIfWeAreInControl ? "WD on" : "WD off")}");
-                output.Add($"Disabled compliance mode = {(analysis.shouldBeOnIfWeAreNotInControl ? "WD on" : "WD off")}");
+                output.Add($"Existing FX state = {(analysis.desiredWDFX ? "WD on" : "WD off")}");
+                output.Add($"Existing others state = {(analysis.desiredWDOthers ? "WD on" : "WD off")}");
                 output.Add($"");
                 output.Add($"Debug info: {analysis.debugInfo}");
                 if (analysis.isBroken) {

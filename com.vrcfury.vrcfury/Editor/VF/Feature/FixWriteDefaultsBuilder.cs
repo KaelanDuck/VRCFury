@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using UnityEngine.Rendering;
 using VF.Builder;
 using VF.Feature.Base;
 using VF.Model;
@@ -45,7 +46,7 @@ namespace VF.Feature {
         [FeatureBuilderAction(FeatureOrder.RecordAllDefaults)]
         public void RecordAllDefaults() {
             var settings = GetBuildSettings();
-            if (settings.useWriteDefaults) return;
+            if (settings.useWriteDefaultsFX) return;
 
             foreach (var layer in GetMaintainedLayers(GetFx())) {
                 foreach (var state in new AnimatorIterator.States().From(layer)) {
@@ -67,11 +68,12 @@ namespace VF.Feature {
             var settings = GetBuildSettings();
 
             foreach (var controller in manager.GetAllUsedControllers()) {
+                bool isFX = controller.GetType() == VRCAvatarDescriptor.AnimLayerType.FX;
+                bool useWriteDefaultsForController = isFX ? settings.useWriteDefaultsFX : settings.useWriteDefaultsOthers;
                 foreach (var layer in GetMaintainedLayers(controller)) {
                     // Direct blend trees break with wd off 100% of the time, so they are a rare case where the layer
                     // absolutely must use wd on.
-                    var useWriteDefaultsForLayer = settings.useWriteDefaults;
-                    useWriteDefaultsForLayer |= new AnimatorIterator.Trees().From(layer)
+                    bool useWriteDefaultsForLayer = useWriteDefaultsForController || new AnimatorIterator.Trees().From(layer)
                         .Any(tree => tree.blendType == BlendTreeType.Direct);
 
                     foreach (var state in new AnimatorIterator.States().From(layer)) {
@@ -83,7 +85,8 @@ namespace VF.Feature {
 
         private class BuildSettings {
             public bool applyToUnmanagedLayers;
-            public bool useWriteDefaults;
+            public bool useWriteDefaultsFX;
+            public bool useWriteDefaultsOthers;
         }
         private BuildSettings _buildSettings;
         private BuildSettings GetBuildSettings() {
@@ -107,8 +110,7 @@ namespace VF.Feature {
                     "VRCFury has detected a (likely) broken mix of Write Defaults on your avatar base." +
                     " This may cause weird issues to happen with your animations," +
                     " such as toggles or animations sticking on or off forever.\n\n" +
-                    "VRCFury can try to fix this for you automatically. Should it try?\n\n" +
-                    $"(Debug info: {analysis.debugInfo}, VRCF will try to convert to {(analysis.shouldBeOnIfWeAreInControl ? "ON" : "OFF")})",
+                    "VRCFury can try to fix this for you automatically. Should it try?",
                     "Auto-Fix",
                     "Skip",
                     "Skip and stop asking");
@@ -124,24 +126,35 @@ namespace VF.Feature {
             }
 
             bool applyToUnmanagedLayers;
-            bool useWriteDefaults;
+            bool useWriteDefaultsFX;
+            bool useWriteDefaultsOthers;
             if (mode == FixWriteDefaults.FixWriteDefaultsMode.Auto) {
                 applyToUnmanagedLayers = true;
-                useWriteDefaults = analysis.shouldBeOnIfWeAreInControl;
+                useWriteDefaultsFX = true;
+                useWriteDefaultsOthers = false;
+            } else if (mode == FixWriteDefaults.FixWriteDefaultsMode.LegacyAuto) {
+                applyToUnmanagedLayers = true;
+                // auto should force all one or the other, stick to the other controllers
+                // which are more likely to be wd-off to avoid breaking blendshapes
+                useWriteDefaultsFX = analysis.desiredWDOthers;
+                useWriteDefaultsOthers = analysis.desiredWDOthers;
             } else if (mode == FixWriteDefaults.FixWriteDefaultsMode.ForceOff) {
                 applyToUnmanagedLayers = true;
-                useWriteDefaults = false;
+                useWriteDefaultsFX = false;
+                useWriteDefaultsOthers = false;
             } else if (mode == FixWriteDefaults.FixWriteDefaultsMode.ForceOn) {
                 applyToUnmanagedLayers = true;
-                useWriteDefaults = true;
+                useWriteDefaultsFX = true;
+                useWriteDefaultsOthers = true;
             } else {
                 applyToUnmanagedLayers = false;
-                useWriteDefaults = analysis.shouldBeOnIfWeAreNotInControl;
+                useWriteDefaultsFX = analysis.desiredWDFX;
+                useWriteDefaultsOthers = analysis.desiredWDOthers;
             }
             
             Debug.Log("VRCFury is fixing write defaults "
                       + (applyToUnmanagedLayers ? "(ALL layers)" : "(Only managed layers)") + " -> "
-                      + (useWriteDefaults ? "ON" : "OFF")
+                      + "FX:" + (useWriteDefaultsFX ? "ON" : "OFF") + ", Others:" + (useWriteDefaultsOthers ? "ON" : "OFF")
                       + $" counts ({analysis.debugInfo})"
                       + $" mode ({mode})"
                       + (analysis.weirdStates.Count > 0 ? ("\n\nWeird states: " + string.Join(",", analysis.weirdStates)) : "")
@@ -149,7 +162,8 @@ namespace VF.Feature {
 
             _buildSettings = new BuildSettings {
                 applyToUnmanagedLayers = applyToUnmanagedLayers,
-                useWriteDefaults = useWriteDefaults
+                useWriteDefaultsFX= useWriteDefaultsFX,
+                useWriteDefaultsOthers = useWriteDefaultsOthers
             };
             return _buildSettings;
         }
@@ -170,8 +184,8 @@ namespace VF.Feature {
 
         public class DetectionResults {
             public bool isBroken;
-            public bool shouldBeOnIfWeAreInControl;
-            public bool shouldBeOnIfWeAreNotInControl;
+            public bool desiredWDFX;
+            public bool desiredWDOthers;
             public string debugInfo;
             public IList<string> weirdStates;
         }
@@ -221,30 +235,50 @@ namespace VF.Feature {
             }
             var debugInfo = string.Join(", ", debugList);
 
-            IList<string> Collect(Func<ControllerInfo, IEnumerable<string>> fn) {
-                return controllerInfos.SelectMany(info => fn(info).Select(s => $"{info.type} | {s}")).ToList();
+            IList<string> Collect(List<ControllerInfo> infos, Func<ControllerInfo, IEnumerable<string>> fn) {
+                return infos.SelectMany(info => fn(info).Select(s => $"{info.type} | {s}")).ToList();
             }
-            var onStates = Collect(info => info.onStates);
-            var offStates = Collect(info => info.offStates);
-            var directOffStates = Collect(info => info.directOffStates);
+
+            var controllerInfosNotFX = controllerInfos.Where(i => i.type != VRCAvatarDescriptor.AnimLayerType.FX).ToList();
+            var controllerInfosFX = controllerInfos.Where(i => i.type == VRCAvatarDescriptor.AnimLayerType.FX).ToList();
+            var onStatesFX = Collect(controllerInfosFX, info => info.onStates);
+            var offStatesFX = Collect(controllerInfosFX, info => info.offStates);
+            var onStatesOthers = Collect(controllerInfosNotFX, info => info.onStates);
+            var offStatesOthers = Collect(controllerInfosNotFX, info => info.offStates);
+            var directOffStates = Collect(controllerInfos, info => info.directOffStates);
+
+            int totalNumFXStates = onStatesFX.Count + offStatesFX.Count;
+            int totalNumOtherStates = onStatesOthers.Count + offStatesOthers.Count;
+
+            // FX should be wd-on if there are no states
+            bool detectedExistingWriteDefaultsStateFX = totalNumFXStates == 0 || onStatesFX.Count > offStatesFX.Count;
+            // Others should be wd-off if there are no states
+            bool detectedExistingWriteDefaultsStateOthers = totalNumOtherStates != 0 && onStatesOthers.Count > offStatesOthers.Count;
+
+            var weirdStatesFX = detectedExistingWriteDefaultsStateFX ? offStatesFX : onStatesFX;
+            var weirdStatesOthers = detectedExistingWriteDefaultsStateOthers ? offStatesOthers : onStatesOthers;
+            // cases where the rest of the controllers are wd-on but the fx controller is wd-off are weird
+            var weirdStatesControllerStateMismatch = detectedExistingWriteDefaultsStateOthers ? offStatesFX : new List<string>();
+            var weirdStates = weirdStatesFX.Concat(weirdStatesOthers).Concat(directOffStates).Concat(weirdStatesControllerStateMismatch).ToList();
+            var broken = weirdStates.Count > 0;
+
+            /*var controllerInfosNotFX = controllerInfos.Where(i => i.type != VRCAvatarDescriptor.AnimLayerType.FX).ToList();
+            var onStatesNotFX = Collect(controllerInfosNotFX, info => info.onStates);
+            var offStatesNotFX = Collect(controllerInfosNotFX, info => info.offStates);
+            var directOffStates = Collect(controllerInfos, info => info.directOffStates);
 
             var fxInfo = controllerInfos.Find(i => i.type == VRCAvatarDescriptor.AnimLayerType.FX);
-            bool shouldBeOnIfWeAreNotInControl;
-            if (fxInfo != null && fxInfo.onStates.Count + fxInfo.offStates.Count > 10) {
-                shouldBeOnIfWeAreNotInControl = fxInfo.onStates.Count > fxInfo.offStates.Count;
-            } else {
-                shouldBeOnIfWeAreNotInControl = onStates.Count > offStates.Count;
-            }
-
-            var shouldBeOnIfWeAreInControl = shouldBeOnIfWeAreNotInControl;
+            bool detectedExistingWriteDefaultsStateNotFX = onStatesNotFX.Count > offStatesNotFX.Count;
+            int fxTotalNumStates = fxInfo != null ? fxInfo.onStates.Count + fxInfo.offStates.Count : 0;
+            bool detectedExistingWriteDefaultsStateFX = fxTotalNumStates == 0 || fxInfo.onStates.Count > fxInfo.offStates.Count;
             
-            var weirdStates = (shouldBeOnIfWeAreNotInControl ? offStates : onStates).Concat(directOffStates).ToList();
-            var broken = weirdStates.Count > 0;
+            var weirdStatesFX = (shouldBeOnIfWeAreNotInControl ? offStates : onStates).Concat(directOffStates).ToList();
+            var broken = weirdStates.Count > 0;*/
 
             return new DetectionResults {
                 isBroken = broken,
-                shouldBeOnIfWeAreInControl = shouldBeOnIfWeAreInControl,
-                shouldBeOnIfWeAreNotInControl = shouldBeOnIfWeAreNotInControl,
+                desiredWDFX = detectedExistingWriteDefaultsStateFX,
+                desiredWDOthers = detectedExistingWriteDefaultsStateOthers,
                 debugInfo = debugInfo,
                 weirdStates = weirdStates
             };
