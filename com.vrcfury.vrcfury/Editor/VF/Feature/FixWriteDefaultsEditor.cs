@@ -20,9 +20,10 @@ namespace VF.Feature {
             container.Add(VRCFuryEditorUtils.Info(
                 "This feature attempt to fix an avatar with a broken mix of Write Defaults."));
             container.Add(VRCFuryEditorUtils.Prop(prop.FindPropertyRelative("mode"), "Fix Mode"));
+            container.Add(VRCFuryEditorUtils.Prop(prop.FindPropertyRelative("autoMode"), "Auto-Fix Mode"));
             container.Add(VRCFuryEditorUtils.Info(
-                "Auto - Forces all states to WD on in the FX controller, and all states to WD off in other controllers\n" +
-                "Legacy Auto - Will force all states to on or off, whichever requires the fewest changes to the existing avatar\n" +
+                "Auto (Compatible) - Forces all states to WD on in the FX controller, and all states to WD off in other controllers\n" +
+                "Auto (Legacy) - Will force all states to on or off, whichever requires the fewest changes to the existing avatar\n" +
                 "Force On - Forces all states to WD on\n" +
                 "Force Off - Forces all states to WD off\n" +
                 "Disabled - Don't try to fix anything and don't warn even if it looks broken"));

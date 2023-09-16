@@ -103,8 +103,10 @@ namespace VF.Feature {
 
             var fixSetting = allFeaturesInRun.OfType<FixWriteDefaults>().FirstOrDefault();
             var mode = FixWriteDefaults.FixWriteDefaultsMode.Disabled;
+            var autoMode = FixWriteDefaults.AutoMode.Compatible;
             if (fixSetting != null) {
                 mode = fixSetting.mode;
+                autoMode = fixSetting.autoMode;
             } else if (analysis.isBroken) {
                 var ask = EditorUtility.DisplayDialogComplex("VRCFury",
                     "VRCFury has detected a (likely) broken mix of Write Defaults on your avatar base." +
@@ -129,15 +131,17 @@ namespace VF.Feature {
             bool useWriteDefaultsFX;
             bool useWriteDefaultsOthers;
             if (mode == FixWriteDefaults.FixWriteDefaultsMode.Auto) {
-                applyToUnmanagedLayers = true;
-                useWriteDefaultsFX = true;
-                useWriteDefaultsOthers = false;
-            } else if (mode == FixWriteDefaults.FixWriteDefaultsMode.LegacyAuto) {
-                applyToUnmanagedLayers = true;
-                // auto should force all one or the other, stick to the other controllers
-                // which are more likely to be wd-off to avoid breaking blendshapes
-                useWriteDefaultsFX = analysis.desiredWDOthers;
-                useWriteDefaultsOthers = analysis.desiredWDOthers;
+                if (autoMode == FixWriteDefaults.AutoMode.Legacy) {
+                    applyToUnmanagedLayers = true;
+                    // auto should force all one or the other, stick to the other controllers
+                    // which are more likely to be wd-off, this avoids breaking blendshapes
+                    useWriteDefaultsFX = analysis.desiredWDOthers;
+                    useWriteDefaultsOthers = analysis.desiredWDOthers;
+                } else /* if (autoMode == FixWriteDefaults.AutoMode.MMDCompatible) */ {
+                    applyToUnmanagedLayers = true;
+                    useWriteDefaultsFX = true;
+                    useWriteDefaultsOthers = false;
+                }
             } else if (mode == FixWriteDefaults.FixWriteDefaultsMode.ForceOff) {
                 applyToUnmanagedLayers = true;
                 useWriteDefaultsFX = false;
@@ -261,19 +265,6 @@ namespace VF.Feature {
             var weirdStatesControllerStateMismatch = detectedExistingWriteDefaultsStateOthers ? offStatesFX : new List<string>();
             var weirdStates = weirdStatesFX.Concat(weirdStatesOthers).Concat(directOffStates).Concat(weirdStatesControllerStateMismatch).ToList();
             var broken = weirdStates.Count > 0;
-
-            /*var controllerInfosNotFX = controllerInfos.Where(i => i.type != VRCAvatarDescriptor.AnimLayerType.FX).ToList();
-            var onStatesNotFX = Collect(controllerInfosNotFX, info => info.onStates);
-            var offStatesNotFX = Collect(controllerInfosNotFX, info => info.offStates);
-            var directOffStates = Collect(controllerInfos, info => info.directOffStates);
-
-            var fxInfo = controllerInfos.Find(i => i.type == VRCAvatarDescriptor.AnimLayerType.FX);
-            bool detectedExistingWriteDefaultsStateNotFX = onStatesNotFX.Count > offStatesNotFX.Count;
-            int fxTotalNumStates = fxInfo != null ? fxInfo.onStates.Count + fxInfo.offStates.Count : 0;
-            bool detectedExistingWriteDefaultsStateFX = fxTotalNumStates == 0 || fxInfo.onStates.Count > fxInfo.offStates.Count;
-            
-            var weirdStatesFX = (shouldBeOnIfWeAreNotInControl ? offStates : onStates).Concat(directOffStates).ToList();
-            var broken = weirdStates.Count > 0;*/
 
             return new DetectionResults {
                 isBroken = broken,

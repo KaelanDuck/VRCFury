@@ -466,13 +466,29 @@ namespace VF.Model.Feature {
     [NoBuilder]
     public class FixWriteDefaults : NewFeatureModel {
         public enum FixWriteDefaultsMode {
-            LegacyAuto,
+            Auto,
             ForceOff,
             ForceOn,
             Disabled,
-            Auto
+        }
+        public enum AutoMode {
+            Compatible,
+            Legacy,
         }
         public FixWriteDefaultsMode mode = FixWriteDefaultsMode.Auto;
+        public AutoMode autoMode = AutoMode.Compatible;
+
+        public override bool Upgrade(int fromVersion) {
+            if (fromVersion < 1) {
+                autoMode = AutoMode.Legacy;
+            }
+            if (mode > FixWriteDefaultsMode.Disabled) mode = FixWriteDefaultsMode.Auto;
+            return false;
+        }
+
+        public override int GetLatestVersion() {
+            return 1;
+        }
     }
     
     [Serializable]
