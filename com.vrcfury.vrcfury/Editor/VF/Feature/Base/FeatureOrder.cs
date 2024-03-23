@@ -113,5 +113,6 @@ namespace VF.Feature.Base {
         ResetAnimatorAfter,
 
         SaveAssets,
+        MergeSameMaterialAssets,
     }
 }

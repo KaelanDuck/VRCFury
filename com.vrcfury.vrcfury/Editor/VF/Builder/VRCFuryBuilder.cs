@@ -159,6 +159,7 @@ public class VRCFuryBuilder {
         AddBuilder(typeof(MarkThingsAsDirtyJustInCaseBuilder));
         AddBuilder(typeof(RestoreProxyClipsBuilder));
         AddBuilder(typeof(FixEmptyMotionBuilder));
+        AddBuilder(typeof(MergeSameMaterialAssetsBuilder));
 
         foreach (var service in injector.GetAllServices()) {
             AddService(service, avatarObject);
